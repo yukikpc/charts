@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "phabricator.fullname" . }}
+  labels:
+    {{- include "phabricator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "phabricator.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "phabricator.fullname" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "phabricator.selectorLabels" . | nindent 8 }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: {{ .Values.image.repository }}:{{ include "phabricator.appVersion" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: PHABRICATOR_HOST
+          value: {{ .Values.ingress.hostName }}
+        - name: PHABRICATOR_REPO_LOCAL_PATH
+          value: /var/lib/phabricator/repo
+        - name: PHABRICATOR_LOG_HOME
+          value: /var/lib/phabricator/log
+        - name: PHABRICATOR_LOG_PHD_HOME
+          value: /var/lib/phabricator/log/phd
+        - name: MYSQL_HOST
+          value: {{ .Values.phabricator.mysql.host }}
+        - name: MYSQL_PORT
+          value: {{ quote .Values.phabricator.mysql.port }}
+        - name: MYSQL_USER
+          value: {{ .Values.phabricator.mysql.user }}
+        - name: MYSQL_PASSWORD
+          valueFrom:
+              secretKeyRef:
+                name: {{ include "phabricator.fullname" . }}
+                key: MYSQL_PASSWORD
+        ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /status/
+            port: http
+            {{- if .Values.ingress.hostName }}
+            httpHeaders:
+            - name: Host
+              value: {{ .Values.ingress.hostName }}
+            {{- end }}
+          failureThreshold: 5
+          periodSeconds: 60
+          timeoutSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /status/
+            port: http
+            {{- if .Values.ingress.hostName }}
+            httpHeaders:
+            - name: Host
+              value: {{ .Values.ingress.hostName }}
+            {{- end }}
+          failureThreshold: 5
+          periodSeconds: 60
+          timeoutSeconds: 60
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/phabricator
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.phabricator.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      annotations:
+      {{- range $key, $value := .Values.phabricator.persistence.annotations }}
+        {{ $key }}: {{ $value }}
+      {{- end }}
+    spec:
+      accessModes:
+      {{- range .Values.phabricator.persistence.accessModes }}
+      - {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.phabricator.persistence.size | quote }}
+      {{- if .Values.phabricator.persistence.storageClass }}
+      {{- if (eq "-" .Values.phabricator.persistence.storageClass) }}
+      storageClassName: ""
+      {{- else }}
+      storageClassName: "{{ .Values.phabricator.persistence.storageClass }}"
+      {{- end }}
+      {{- end }}
+  {{- else }}
+      volumes:
+      - name: data
+        emptyDir:
+  {{- end }}
