@@ -1,0 +1,20 @@
+steps:
+- name: 'gcr.io/cloud-builders/gsutil'
+  entrypoint: bash
+  args:
+  - "-c"
+  - "gsutil cp $_GCS_BUCKET/index.yaml index.yaml || :"
+- name: alpine/helm
+  entrypoint: sh
+  args:
+  - '-c'
+  - 'for dir in $_REPO_HOME/*; do helm package --destination "$_SYNC_HOME" "$dir"; done'
+- name: alpine/helm
+  args: ["repo", "index", "--url", "$_REPO_URL", "--merge", "index.yaml", "$_SYNC_HOME"]
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ["rsync", "$_SYNC_HOME", "$_GCS_BUCKET"]
+substitutions:
+  _REPO_URL: https://yukikpc-charts.storage.googleapis.com/
+  _GCS_BUCKET: gs://yukikpc-charts
+  _REPO_HOME: yukikpc
+  _SYNC_HOME: sync
