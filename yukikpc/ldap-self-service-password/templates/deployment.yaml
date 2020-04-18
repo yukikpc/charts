@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ldap-self-service-password.fullname" . }}
+  labels:
+    {{- include "ldap-self-service-password.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ldap-self-service-password.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ldap-self-service-password.selectorLabels" . | nindent 8 }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- if .Values.ingress.hosts }}
+            - name: SERVER_HOSTNAME
+              value: {{ with (index .Values.ingress.hosts 0) }}{{ default "" .host }}{{ end }}
+            {{- end }}
+            {{- if .Values.lssp.subdir }}
+            - name:  VIRTUAL_SUBDIR
+              value: {{ .Values.lssp.subdir }}
+            {{- end }}
+            {{- with .Values.lssp.ldap }}
+            - name: LDAP_URL
+              value: {{ .url }}
+            - name: ldap_base
+              value: {{ .base }}
+            - name:  LDAP_USER
+              value: {{ .user }}
+            {{- end }}
+            - name: LDAP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ldap-self-service-password.fullname" . }}
+                  key: LDAP_PASS
+            - name:  LDAP_STARTTLS
+              value: {{ if .Values.ingress.tls }}"true"{{ else }}"false"{{ end }}
+            {{- range .Values.lssp.ldap.env }}
+            - name: {{ .name  }}
+              value: {{ .value }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 5
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 5
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
